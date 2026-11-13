@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lapse</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="흘러간 시간까지 기록하는 Windows 게임 런처">
+<style>
+/* Layout: 한 가지 검정 위에 넓은 글자와 시간만. 히어로(지금 시각) → 앱 화면이 스크롤에 맞춰 커짐 →
+   모래시계 장면(스크롤하면 모래가 내려감, 기록 규칙 세 줄) → 기능 네 줄 → 달력 → 설치 → 질문 → 큰 LAPSE.
+   글꼴은 앱과 같게: 넓게 펼친 Archivo(영문 · 숫자) + G마켓 산스(한글). 일부러 어두운 한 가지 모습만 둔다. */
+@font-face { font-family: "Arc"; src: url(fonts/ArchivoVariable.ttf) format("truetype"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+@font-face { font-family: "GM"; src: url(fonts/GmarketSansLight.ttf) format("truetype"); font-weight: 300; font-display: swap; }
+@font-face { font-family: "GM"; src: url(fonts/GmarketSansMedium.ttf) format("truetype"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "GM"; src: url(fonts/GmarketSansBold.ttf) format("truetype"); font-weight: 700; font-display: swap; }
+:root {
+  --bg: #0a0a0b;
+  --raise: #141415;
+  --raise-2: #1c1c1e;
+  --rule: rgba(255, 255, 255, 0.08);
+  --ink: #ededee;
+  --mute: #8b8b90;
+  --faint: #55555a;
+  --live: #3ddc6f;
+  --wide: "Arc", "GM", system-ui, sans-serif;
+  --ko: "GM", "Arc", "Malgun Gothic", system-ui, sans-serif;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { background: var(--bg); color: var(--ink); font-family: var(--ko); font-weight: 300; font-size: 16px; line-height: 1.75; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+p, h1, h2, h3, ul, ol, dl, dd { margin: 0; }
+ul, ol { list-style: none; padding: 0; }
+a { color: inherit; }
+:focus-visible { outline: 1px solid var(--ink); outline-offset: 5px; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+.wide { font-family: var(--wide); font-stretch: 125%; text-transform: uppercase; }
+.cap { font-family: var(--wide); font-stretch: 125%; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--mute); font-weight: 500; }
+
+/* ---------- 상단 */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); }
+.top { position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0; z-index: 10; mix-blend-mode: difference; }
+.top .wrap { display: flex; align-items: center; height: 72px; gap: 40px; }
+.mark { font-family: var(--wide); font-stretch: 125%; font-weight: 700; letter-spacing: .32em; font-size: 13px; text-decoration: none; color: #fff; }
+.nav { display: flex; gap: 32px; margin-left: auto; }
+.nav a, .get-top { font-family: var(--wide); font-stretch: 125%; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; text-decoration: none; color: #fff; position: relative; padding-block: 6px; }
+.nav a::after, .get-top::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: #fff; transform: scaleX(0); transform-origin: right; transition: transform .6s var(--ease); }
+.nav a:hover::after, .get-top:hover::after { transform: scaleX(1); transform-origin: left; }
+
+/* ---------- 히어로: 지금 시각 */
+.hero { position: relative; padding-block: 150px 90px; overflow: hidden; }
+.hero::before { /* 마우스를 따라오는 은은한 빛 */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(600px circle at var(--mx, 70%) var(--my, 30%), rgba(255, 255, 255, 0.06), transparent 60%);
+  transition: background .2s;
+}
+.hero .meta { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.rec { display: inline-flex; align-items: center; gap: 10px; }
+.rec i { width: 6px; height: 6px; border-radius: 50%; background: var(--live); display: block; box-shadow: 0 0 12px var(--live); }
+.clock { font-family: var(--wide); font-stretch: 125%; font-weight: 200; font-size: clamp(52px, 12.4vw, 186px); line-height: .9; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin-top: 28px; white-space: nowrap; }
+.drawline { height: 1px; background: var(--rule); margin-top: 36px; transform-origin: left; }
+.hero .below { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 40px; margin-top: 36px; align-items: end; }
+.hero h1 { font-family: var(--ko); font-weight: 500; font-size: clamp(30px, 4.2vw, 58px); line-height: 1.22; letter-spacing: -0.03em; text-wrap: balance; }
+.hero h1 span { color: var(--faint); }
+.hero .side { display: grid; gap: 24px; justify-items: start; }
+.hero .side p { color: var(--mute); max-width: 34ch; font-size: 16px; }
+.get {
+  position: relative; display: inline-flex; align-items: center; gap: 14px; overflow: hidden;
+  font-family: var(--wide); font-stretch: 125%; font-size: 12px; letter-spacing: .2em; text-transform: uppercase; font-weight: 500;
+  text-decoration: none; color: var(--bg); background: var(--ink); padding: 18px 28px; border-radius: 999px;
+  transition: transform .5s var(--ease);
+}
+.get::before { content: ""; position: absolute; inset: 0; background: #fff; transform: translateY(101%); transition: transform .6s var(--ease); }
+.get:hover::before { transform: none; }
+.get span, .get svg { position: relative; }
+.get svg { width: 14px; height: 14px; transition: transform .6s var(--ease); }
+.get:hover svg { transform: translateY(2px); }
+.get[aria-disabled="true"] { opacity: .5; cursor: default; }
+.get[aria-disabled="true"]::before { display: none; }
+
+/* 처음 열릴 때: 넓게 퍼져 있던 글자가 제자리로 모인다 (내내 보이는 상태) */
+@media (prefers-reduced-motion: no-preference) {
+  .settle { animation: settle 2.2s var(--ease) both; }
+  .settle.d1 { animation-delay: .15s; }
+  @keyframes settle { from { letter-spacing: .18em; filter: blur(4px); } }
+  .drawline { animation: draw 2.4s var(--ease) .3s both; }
+  @keyframes draw { from { transform: scaleX(0); } }
+  .rec i { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .35; box-shadow: 0 0 2px var(--live); } }
+}
+
+/* ---------- 앱 화면 (스크롤하면 커진다) */
+.stage { padding-block: 40px 120px; }
+.app {
+  --p: 1;
+  transform: scale(calc(.86 + .14 * var(--p)));
+  border-radius: calc(28px - 16px * var(--p));
+  border: 1px solid var(--rule); overflow: hidden; background: #191919;
+  display: grid; grid-template-columns: 210px minmax(0, 1fr); position: relative; font-size: 13px; font-weight: 300;
+  box-shadow: 0 60px 120px rgba(0, 0, 0, .6);
+  will-change: transform;
+}
+.lights { position: absolute; top: 14px; right: 16px; display: flex; gap: 9px; }
+.lights i { width: 11px; height: 11px; border-radius: 50%; display: block; }
+.lights i:nth-child(1) { background: #febc2e; } .lights i:nth-child(2) { background: #28c840; } .lights i:nth-child(3) { background: #ff5f57; }
+.side-nav { background: #1d1d1f; border-right: 1px solid var(--rule); padding: 16px 12px 22px; display: flex; flex-direction: column; gap: 2px; }
+.side-nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; margin: 0 6px 14px; }
+.side-nav .brand img { width: 26px; height: 26px; }
+.nv { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 8px; font-weight: 500; }
+.nv span:last-child { color: var(--faint); font-family: var(--wide); font-stretch: 112%; }
+.nv.on { background: #2a2a2d; }
+.side-nav .cap { margin: 16px 10px 4px; font-size: 9px; }
+.np { display: flex; gap: 10px; align-items: center; background: #2a2a2d; border-radius: 10px; padding: 8px; }
+.np .art { width: 34px; height: 34px; border-radius: 7px; flex: none; position: relative; overflow: hidden; }
+.np b { display: block; font-size: 12px; font-weight: 500; }
+.np span { color: var(--live); font-size: 11px; font-family: var(--wide); font-stretch: 112%; font-weight: 400; }
+.main { padding: 24px 28px 36px; min-width: 0; }
+.main h3 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+.main .sub { color: var(--mute); font-size: 12px; }
+.main .sub b { font-family: var(--wide); font-stretch: 112%; font-weight: 400; }
+.cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.cover { aspect-ratio: 2 / 3; border-radius: 10px; position: relative; overflow: hidden; display: flex; align-items: flex-end; padding: 11px; color: #fff; font-weight: 500; font-size: 13px; }
+.cover .art { position: absolute; inset: 0; }
+.cover .nm { position: relative; text-shadow: 0 1px 14px rgba(0,0,0,.6); }
+.badge { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.62); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: 99px; display: flex; gap: 5px; align-items: center; }
+.badge i { width: 6px; height: 6px; border-radius: 50%; background: var(--live); display: block; }
+.card b { display: block; margin-top: 8px; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card small { font-size: 11px; color: var(--mute); }
+.card small.live { color: var(--live); }
+.num { font-family: var(--wide); font-stretch: 112%; font-weight: 400; font-variant-numeric: tabular-nums; }
+/* 가상의 게임 표지 */
+.a1 { background: linear-gradient(200deg, #3a4bd8 0%, #171a3a 55%, #0a0b14 100%); }
+.a2 { background: linear-gradient(200deg, #e2643b 0%, #4a1626 55%, #12070b 100%); }
+.a3 { background: linear-gradient(200deg, #2fbf98 0%, #0e3a3d 55%, #050f11 100%); }
+.a4 { background: linear-gradient(200deg, #e9b23f 0%, #4f3410 55%, #140d04 100%); }
+.a5 { background: linear-gradient(200deg, #a46af0 0%, #2e1750 55%, #0d0717 100%); }
+.art::after { content: ""; position: absolute; inset: 52% 0 0 0; background: rgba(0,0,0,.35); clip-path: polygon(0 55%, 22% 20%, 40% 48%, 58% 8%, 78% 40%, 100% 22%, 100% 100%, 0 100%); }
+.cover .art::before { content: ""; position: absolute; width: 22%; aspect-ratio: 1; border-radius: 50%; top: 18%; right: 20%; background: rgba(255,255,255,.55); }
+
+/* ---------- 모래시계 장면 */
+.glass { position: relative; height: 300vh; border-top: 1px solid var(--rule); }
+.glass .pin { position: sticky; top: 0; height: 100vh; height: 100svh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 48px; }
+.hg { width: min(320px, 70%); justify-self: center; overflow: visible; }
+.hg .shell { fill: none; stroke: rgba(255,255,255,.18); stroke-width: 2; stroke-linejoin: round; }
+.hg .sand { fill: var(--ink); }
+.hg .stream { stroke: var(--ink); stroke-width: 2; stroke-linecap: round; }
+.hg .lower { fill: #8b8b90; }
+.rules { display: grid; gap: 34px; }
+.rule { transition: opacity .8s var(--ease), transform .8s var(--ease); opacity: .28; }
+.rule.on { opacity: 1; transform: translateX(10px); }
+.rule .v { font-family: var(--wide); font-stretch: 125%; font-weight: 200; font-size: clamp(44px, 6vw, 84px); line-height: 1; letter-spacing: -0.02em; }
+.rule .v small { font-family: var(--ko); font-weight: 300; font-size: .3em; margin-left: 10px; letter-spacing: 0; color: var(--mute); }
+.rule h3 { font-weight: 500; font-size: 20px; margin-top: 14px; letter-spacing: -0.02em; }
+.rule p { color: var(--mute); font-size: 15px; margin-top: 4px; max-width: 40ch; }
+.glass .count { position: absolute; left: 0; bottom: 34px; }
+
+/* ---------- 기능 네 줄 */
+.block { border-top: 1px solid var(--rule); padding-block: 130px; }
+.block h2 { font-family: var(--ko); font-weight: 500; font-size: clamp(32px, 4.4vw, 60px); line-height: 1.2; letter-spacing: -0.035em; max-width: 18ch; text-wrap: balance; margin-top: 22px; }
+.lines { margin-top: 70px; border-top: 1px solid var(--rule); }
+.line { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 32px; padding: 34px 0; border-bottom: 1px solid var(--rule); position: relative; align-items: baseline; }
+.line::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,255,255,.035), transparent); transform: scaleX(0); transform-origin: left; transition: transform .9s var(--ease); pointer-events: none; }
+.line:hover::before { transform: scaleX(1); }
+.line .t { font-family: var(--wide); font-stretch: 125%; font-weight: 300; font-size: clamp(28px, 4vw, 54px); text-transform: uppercase; letter-spacing: -0.01em; line-height: 1; transition: transform .9s var(--ease), letter-spacing .9s var(--ease); }
+.line:hover .t { transform: translateX(14px); letter-spacing: .02em; }
+.line p { color: var(--mute); font-size: 16px; max-width: 46ch; }
+.line p b { color: var(--ink); font-weight: 500; }
+
+/* ---------- 달력 */
+.cal-wrap { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 64px; margin-top: 70px; align-items: start; }
+.cal-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cal-head h3 { font-family: var(--wide); font-stretch: 125%; font-weight: 300; font-size: 28px; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; margin-top: 18px; }
+.cal .wd { font-family: var(--wide); font-stretch: 112%; font-size: 10px; letter-spacing: .15em; color: var(--faint); padding-bottom: 6px; }
+.day { aspect-ratio: 1.15; border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; justify-content: space-between; font-family: var(--wide); font-stretch: 112%; font-size: 11px; color: var(--faint); background: var(--raise); min-width: 0; transition: transform .5s var(--ease); }
+.day.p { background: color-mix(in srgb, #ffffff calc(var(--k) * 80% + 5%), var(--raise)); color: var(--ink); }
+.day.p:hover { transform: translateY(-3px); }
+.day.hi { color: #0a0a0b; }
+.day.today { box-shadow: inset 0 0 0 1px var(--ink); }
+.day b { font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.facts > div { padding: 24px 0; border-bottom: 1px solid var(--rule); }
+.facts > div:first-child { border-top: 1px solid var(--rule); }
+.facts .v { font-family: var(--wide); font-stretch: 125%; font-weight: 200; font-size: 44px; line-height: 1.1; margin-top: 8px; }
+.facts .v.ko { font-family: var(--ko); font-weight: 500; font-size: 28px; letter-spacing: -0.03em; }
+.facts small { color: var(--mute); font-size: 13px; }
+
+/* ---------- 설치 · 질문 */
+.install { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 64px; margin-top: 70px; }
+.spec div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--rule); font-size: 15px; }
+.spec div:first-child { border-top: 1px solid var(--rule); }
+.spec dt { color: var(--faint); font-family: var(--wide); font-stretch: 125%; font-size: 10px; letter-spacing: .2em; text-transform: uppercase; padding-top: 5px; }
+.spec dd { font-weight: 300; }
+.steps { counter-reset: s; border-top: 1px solid var(--rule); }
+.steps li { display: grid; grid-template-columns: 64px minmax(0, 1fr); padding: 26px 0; border-bottom: 1px solid var(--rule); }
+.steps li::before { counter-increment: s; content: "0" counter(s); font-family: var(--wide); font-stretch: 125%; font-size: 13px; color: var(--faint); padding-top: 4px; }
+.steps b { font-weight: 500; font-size: 18px; display: block; letter-spacing: -0.02em; }
+.steps p { color: var(--mute); font-size: 15px; margin-top: 4px; }
+.key { font-weight: 500; font-size: 13px; border: 1px solid var(--rule); border-radius: 4px; padding: 1px 8px; white-space: nowrap; color: var(--ink); }
+.faq { margin-top: 70px; border-top: 1px solid var(--rule); }
+.faq details { border-bottom: 1px solid var(--rule); }
+.faq summary { cursor: pointer; list-style: none; padding: 26px 0; display: flex; justify-content: space-between; gap: 24px; font-size: 19px; font-weight: 500; letter-spacing: -0.02em; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; font-family: var(--wide); font-weight: 200; font-size: 26px; line-height: 1; color: var(--mute); transition: transform .6s var(--ease); }
+.faq details[open] summary::after { transform: rotate(45deg); }
+.faq details p { color: var(--mute); padding: 0 0 28px; max-width: 62ch; }
+.path { font-family: var(--wide); font-stretch: 100%; font-size: 13px; color: var(--ink); word-break: break-all; }
+
+/* ---------- 끝: 큰 LAPSE (스크롤하면 옆으로 흐른다) */
+.closing { border-top: 1px solid var(--rule); padding-block: 120px 48px; overflow: hidden; }
+.big { --x: 0; font-family: var(--wide); font-stretch: 125%; font-weight: 800; font-size: clamp(110px, 30vw, 460px); line-height: .82; letter-spacing: -0.04em; white-space: nowrap; transform: translateX(calc(var(--x) * 1px)); will-change: transform; }
+.big span { color: transparent; -webkit-text-stroke: 1px rgba(255,255,255,.25); }
+.foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; margin-top: 56px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app { --p: 1 !important; }
+  .big { --x: 0 !important; }
+  .rule { opacity: 1; transform: none; }
+}
+@media (max-width: 920px) {
+  .hero .below, .cal-wrap, .install, .line, .glass .pin { grid-template-columns: minmax(0, 1fr); }
+  .glass .pin { align-content: center; gap: 28px; }
+  .hg { width: min(180px, 46%); }
+  .rules { gap: 18px; }
+  .rule .v { font-size: 40px; }
+  .rule p { display: none; }
+  .nav { display: none; }
+  .top .get-top { margin-left: auto; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side-nav { display: none; }
+  .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cards .card:nth-child(n+4) { display: none; }
+  .block { padding-block: 90px; }
+}
+@media (max-width: 560px) {
+  .hero { padding-block: 120px 60px; }
+  .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards .card:nth-child(n+3) { display: none; }
+  .day { padding: 4px 5px; font-size: 9px; }
+  .facts .v { font-size: 34px; }
+  .get { font-size: 11px; letter-spacing: .14em; padding: 16px 22px; white-space: nowrap; }
+}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="#top">LAPSE</a>
+    <nav class="nav" aria-label="페이지 안 이동">
+      <a href="#record">Record</a>
+      <a href="#features">Features</a>
+      <a href="#stats">Stats</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="get-top" href="#install">Download</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero" id="hero">
+    <div class="wrap">
+      <div class="meta">
+        <span class="cap rec"><i></i><span>Now · <span id="tz">Local time</span></span></span>
+        <span class="cap" id="today">Today</span>
+      </div>
+      <div class="clock settle" id="clock" aria-label="지금 시각">00:00:00</div>
+      <div class="drawline"></div>
+      <div class="below">
+        <h1 class="settle d1">흘러간 시간까지,<br><span>아름답게 기록합니다.</span></h1>
+        <div class="side">
+          <p>어디서 켠 게임이든 한곳에서 실행하고, 화면 앞에 있던 시간만 남기는 Windows 앱.</p>
+          <a class="get js-dl" href="#install"><span class="js-dl-label">Download for Windows</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13m0 0 5-5m-5 5-5-5M5 21h14"/></svg></a>
+          <span class="cap">v3.1 · Windows 10 / 11 · Free</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stage">
+    <div class="wrap">
+      <div class="app" id="app" role="img" aria-label="Lapse 라이브러리 화면 예시">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <aside class="side-nav">
+          <div class="brand"><img src="logo.png" alt="">Lapse</div>
+          <div class="nv on"><span>전체</span><span>12</span></div>
+          <div class="nv"><span>게임</span><span>10</span></div>
+          <div class="nv"><span>앱</span><span>2</span></div>
+          <div class="nv"><span>즐겨찾기</span><span>3</span></div>
+          <div class="nv"><span>통계</span><span></span></div>
+          <div class="cap">Collections</div>
+          <div class="nv"><span>주말 게임</span><span>4</span></div>
+          <div class="cap">Now playing</div>
+          <div class="np"><div class="art a1"></div><div><b>Starfall Sonata</b><span class="js-session">1:12:08</span></div></div>
+        </aside>
+        <div class="main">
+          <h3>라이브러리</h3>
+          <p class="sub"><b>12</b>개 · 총 <b>612</b>시간 <b>40</b>분 플레이</p>
+          <div class="cards">
+            <div class="card"><div class="cover"><div class="art a1"></div><span class="badge"><i></i>플레이 중</span><span class="nm">Starfall Sonata</span></div><b>Starfall Sonata</b><small class="live">플레이 중</small></div>
+            <div class="card"><div class="cover"><div class="art a2"></div><span class="nm">Ember Road</span></div><b>Ember Road</b><small><span class="num">214</span>시간 · 어제</small></div>
+            <div class="card"><div class="cover"><div class="art a3"></div><span class="nm">Tidewalker</span></div><b>Tidewalker</b><small><span class="num">98</span>시간 · 3일 전</small></div>
+            <div class="card"><div class="cover"><div class="art a4"></div><span class="nm">Pocket Kart</span></div><b>Pocket Kart</b><small><span class="num">41</span>시간 · 1주 전</small></div>
+            <div class="card"><div class="cover"><div class="art a5"></div><span class="nm">Quiet Orbit</span></div><b>Quiet Orbit</b><small><span class="num">17</span>시간 · 2주 전</small></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 모래시계: 스크롤하는 만큼 모래가 떨어지고, 기록 규칙이 하나씩 밝아진다 -->
+  <section class="glass" id="record">
+    <div class="wrap pin">
+      <svg class="hg" viewBox="0 0 200 300" role="img" aria-label="스크롤에 따라 모래가 떨어지는 모래시계">
+        <defs>
+          <clipPath id="topClip"><rect id="topSand" x="0" y="20" width="200" height="128"/></clipPath>
+          <clipPath id="botClip"><rect id="botSand" x="0" y="280" width="200" height="0"/></clipPath>
+        </defs>
+        <path class="sand" clip-path="url(#topClip)" d="M44 24 H156 L100 146 Z" stroke="#ededee" stroke-width="10" stroke-linejoin="round"/>
+        <path class="lower" clip-path="url(#botClip)" d="M100 154 L156 276 H44 Z" stroke="#8b8b90" stroke-width="10" stroke-linejoin="round"/>
+        <line class="stream" id="stream" x1="100" y1="146" x2="100" y2="276" opacity="0"/>
+        <path class="shell" d="M44 24 H156 L100 146 Z M100 154 L156 276 H44 Z"/>
+      </svg>
+      <div>
+        <div class="cap">Recording rules</div>
+        <div class="rules" style="margin-top:28px">
+          <div class="rule on"><div class="v">15<small>초</small></div><h3>맨 앞 창만 기록합니다</h3><p>뒤에 깔리거나 최소화된 게임은 멈춥니다. 다른 창을 15초 안에 다녀오면 그대로 이어 셉니다.</p></div>
+          <div class="rule"><div class="v">5<small>분</small></div><h3>자리를 비우면 멈춥니다</h3><p>키보드, 마우스, 게임패드를 5분 동안 만지지 않으면 그 시간은 넣지 않습니다.</p></div>
+          <div class="rule"><div class="v">WEB</div><h3>웹 게임은 탭 단위로</h3><p>그 사이트 탭을 보고 있을 때만 셉니다. 크롬 · 엣지 확장으로 더 정확해집니다.</p></div>
+        </div>
+      </div>
+      <span class="cap count" id="sandTime">Elapsed 00:00</span>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <span class="cap">Features</span>
+      <h2>필요한 것만, 조용히.</h2>
+      <div class="lines">
+        <div class="line"><div class="t">Library</div><p>스팀, Epic, EA, 라이엇, 유비소프트, 호요플레이, 넥슨, Battle.net에 깔린 게임을 <b>한 번에 찾아</b> 표지와 함께 모읍니다. 웹 게임 사이트도 추가할 수 있습니다.</p></div>
+        <div class="line"><div class="t">Collections</div><p>여러 개를 골라 모음집에 <b>한꺼번에</b> 넣고, 진행 중 · 클리어 · 보류와 별점, 메모로 정리합니다.</p></div>
+        <div class="line"><div class="t">Recap</div><p>한 해를 스토리처럼 넘겨 봅니다. 올해의 게임, 플레이 스타일, 가장 긴 세션. 카드마다 <b>이미지로 저장</b>됩니다.</p></div>
+        <div class="line"><div class="t">Discord</div><p>지금 하는 게임과 경과 시간을 프로필에 띄웁니다. <b>ID 입력 없이</b> 스위치 하나면 됩니다.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="stats">
+    <div class="wrap">
+      <span class="cap">Stats</span>
+      <h2>언제, 무엇을, 얼마나.</h2>
+      <div class="cal-wrap">
+        <div>
+          <div class="cal-head"><h3>2026.11</h3><span class="cap">Sample · 34h 12m</span></div>
+          <div class="cal" id="cal" aria-label="2026년 11월 플레이 달력 예시"></div>
+        </div>
+        <div class="facts">
+          <div><span class="cap">Longest day</span><div class="v">7:50</div><small>11월 1일 (일)</small></div>
+          <div><span class="cap">Streak</span><div class="v">06<span style="font-size:.4em;font-family:var(--ko);font-weight:300"> 일째</span></div><small>최고 기록 23일</small></div>
+          <div><span class="cap">Prime time</span><div class="v ko">밤 올빼미 게이머</div><small>오후 10시 ~ 오전 1시</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="install">
+    <div class="wrap">
+      <span class="cap">Install</span>
+      <h2>설치 파일 하나, 1분.</h2>
+      <div class="install">
+        <div>
+          <dl class="spec">
+            <div><dt>Version</dt><dd>3.1</dd></div>
+            <div><dt>File</dt><dd>LapseSetup.exe · 9MB</dd></div>
+            <div><dt>System</dt><dd>Windows 10 · 11 (64비트)</dd></div>
+            <div><dt>Price</dt><dd>무료 · 광고 없음 · 가입 없음</dd></div>
+          </dl>
+          <a class="get js-dl" href="#install" style="margin-top:32px"><span class="js-dl-label">Download for Windows</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v13m0 0 5-5m-5 5-5-5M5 21h14"/></svg></a>
+        </div>
+        <ol class="steps">
+          <li><div><b>설치 파일 받기</b><p>LapseSetup.exe를 받습니다.</p></div></li>
+          <li><div><b>"Windows의 PC 보호" 창이 뜨면</b><p><span class="key">추가 정보</span> → <span class="key">실행</span>을 누릅니다. 아직 코드 서명이 없는 개인 앱이라 처음 한 번 뜹니다.</p></div></li>
+          <li><div><b>설치</b><p>바로가기, 설치 후 실행, Windows 시작 시 자동 실행을 고르고 설치를 누르면 끝입니다.</p></div></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="faq">
+    <div class="wrap">
+      <span class="cap">FAQ</span>
+      <h2>자주 묻는 것.</h2>
+      <div class="faq">
+        <details><summary>정말 무료인가요?</summary><p>네. 광고도, 결제도, 회원가입도 없습니다.</p></details>
+        <details><summary>기록은 어디에 저장되나요?</summary><p><span class="path">문서\PlaytimeDeck\library.json</span> 파일 하나에 저장됩니다. 이 파일만 옮기면 다른 PC에서도 이어 쓸 수 있습니다. 인터넷으로는 아무것도 보내지 않습니다.</p></details>
+        <details><summary>앱으로 게임을 켜야만 기록되나요?</summary><p>아니요. 스팀이나 바로가기로 켜도, 게임이 맨 앞 창에 있으면 기록합니다.</p></details>
+        <details><summary>예전에 한 시간도 넣을 수 있나요?</summary><p>스팀 게임은 스팀에 쌓인 시간을 가져옵니다. EA app, 유비소프트처럼 시간을 공개하지 않는 곳은 게임 편집에서 "이전 플레이 시간"을 직접 적으면 더해집니다.</p></details>
+        <details><summary>업데이트는 어떻게 하나요?</summary><p>새 설치 파일을 받아 다시 실행합니다. 켜져 있는 앱은 기록을 저장하고 새 버전으로 바뀌며, 기록과 설정은 그대로 남습니다.</p></details>
+        <details><summary>지우면 기록도 사라지나요?</summary><p>아니요. Windows 설정 → 앱 → Lapse → 제거로 지워도 기록 파일은 남겨 둡니다.</p></details>
+        <details><summary>Mac이나 휴대폰에서도 되나요?</summary><p>지금은 Windows 전용입니다.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <div class="big" id="big" aria-hidden="true">LAPSE <span>LAPSE</span> LAPSE <span>LAPSE</span></div>
+    <div class="wrap foot">
+      <span class="cap">© 2026 NightShift Lab</span>
+      <span class="cap">Type · Archivo · Gmarket Sans</span>
+    </div>
+  </section>
+</main>
+
+<script>
+  // 설치 파일을 올린 주소를 여기에 넣으면 다운로드 버튼이 그 주소로 바로 연결됩니다.
+  const DOWNLOAD_URL = "https://github.com/nightshiftlabHQ/lapse/releases/latest/download/LapseSetup.exe";
+  document.querySelectorAll(".js-dl").forEach((a) => {
+    if (DOWNLOAD_URL) {
+      a.href = DOWNLOAD_URL;
+    } else if (a.closest("#install")) {
+      a.setAttribute("aria-disabled", "true");
+      a.addEventListener("click", (e) => e.preventDefault());
+      const label = a.querySelector(".js-dl-label");
+      if (label) label.textContent = "Coming soon";
+    }
+  });
+
+  const two = (n) => String(n).padStart(2, "0");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // 지금 시각 (보는 사람 기기 기준)
+  const clockEl = document.getElementById("clock");
+  const dateEl = document.getElementById("today");
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    if (zone) document.getElementById("tz").textContent = zone.split("/").pop().replace(/_/g, " ");
+  } catch (e) { /* 시간대 이름을 못 읽으면 Local time 그대로 */ }
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function clockTick() {
+    const d = new Date();
+    clockEl.textContent = two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds());
+    dateEl.textContent = DAYS[d.getDay()] + " · " + MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
+  }
+  clockTick();
+  setTimeout(() => { clockTick(); setInterval(clockTick, 1000); }, 1000 - (Date.now() % 1000));
+
+  // 앱 화면 예시 속 플레이 시간
+  let sessionSec = 1 * 3600 + 12 * 60 + 8;
+  const sessionEls = document.querySelectorAll(".js-session");
+  setInterval(() => {
+    sessionSec++;
+    const h = Math.floor(sessionSec / 3600), m = Math.floor((sessionSec % 3600) / 60), s = sessionSec % 60;
+    sessionEls.forEach((el) => (el.textContent = h + ":" + two(m) + ":" + two(s)));
+  }, 1000);
+
+  // 히어로: 마우스를 따라오는 빛
+  const hero = document.getElementById("hero");
+  hero.addEventListener("pointermove", (e) => {
+    const r = hero.getBoundingClientRect();
+    hero.style.setProperty("--mx", ((e.clientX - r.left) / r.width * 100).toFixed(1) + "%");
+    hero.style.setProperty("--my", ((e.clientY - r.top) / r.height * 100).toFixed(1) + "%");
+  });
+
+  // 스크롤 연동: 앱 화면 커지기 · 모래시계 · 큰 LAPSE 흐르기
+  const app = document.getElementById("app");
+  const glass = document.getElementById("record");
+  const topSand = document.getElementById("topSand");
+  const botSand = document.getElementById("botSand");
+  const stream = document.getElementById("stream");
+  const rules = [...document.querySelectorAll(".rule")];
+  const sandTime = document.getElementById("sandTime");
+  const big = document.getElementById("big");
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  let ticking = false;
+  function onScroll() {
+    ticking = false;
+    const vh = innerHeight;
+    if (!reduce) {
+      const ar = app.getBoundingClientRect();
+      app.style.setProperty("--p", clamp01((vh - ar.top) / (vh * 0.75)).toFixed(3));
+      const br = big.getBoundingClientRect();
+      big.style.setProperty("--x", (((br.top - vh) / vh) * 180 - 60).toFixed(1));
+    }
+    // 모래시계: 장면 안에서 얼마나 내려왔는지 (0 ~ 1)
+    const gr = glass.getBoundingClientRect();
+    const p = clamp01(-gr.top / (gr.height - vh));
+    const H = 128;
+    topSand.setAttribute("y", (20 + p * H).toFixed(1));
+    topSand.setAttribute("height", (H * (1 - p)).toFixed(1));
+    botSand.setAttribute("y", (280 - p * H).toFixed(1));
+    botSand.setAttribute("height", (p * H).toFixed(1));
+    stream.setAttribute("opacity", p > 0.01 && p < 0.99 ? "0.9" : "0");
+    const idx = Math.min(rules.length - 1, Math.floor(p * rules.length));
+    rules.forEach((r, i) => r.classList.toggle("on", i === idx));
+    const secs = Math.round(p * 3600);  // 장면 전체 = 1시간
+    sandTime.textContent = "Elapsed " + two(Math.floor(secs / 60)) + ":" + two(secs % 60);
+  }
+  addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(onScroll); } }, { passive: true });
+  addEventListener("resize", onScroll);
+  onScroll();
+
+  // 플레이 달력 예시 (2026년 11월 1일은 일요일, 분 단위)
+  const minutes = {1: 470, 2: 101, 4: 256, 6: 172, 8: 3, 9: 64, 10: 188, 11: 35, 12: 240, 13: 132, 14: 305, 15: 96, 16: 52};
+  const todayIdx = 16;
+  const cal = document.getElementById("cal");
+  const fmt = (m) => Math.floor(m / 60) + ":" + two(m % 60);
+  ["S", "M", "T", "W", "T", "F", "S"].forEach((w) => {
+    const d = document.createElement("div");
+    d.className = "wd";
+    d.textContent = w;
+    cal.appendChild(d);
+  });
+  for (let d = 1; d <= 30; d++) {
+    const el = document.createElement("div");
+    const m = minutes[d] || 0;
+    el.className = "day" + (m ? " p" : "") + (d === todayIdx ? " today" : "");
+    if (m) {
+      const k = Math.sqrt(Math.min(1, m / 300));
+      el.style.setProperty("--k", k.toFixed(2));
+      if (k > 0.62) el.classList.add("hi");
+      el.title = "11월 " + d + "일 · " + fmt(m);
+    }
+    el.innerHTML = "<span>" + two(d) + "</span>" + (m ? "<b>" + fmt(m) + "</b>" : "");
+    cal.appendChild(el);
+  }
+</script>
+
+</html>
